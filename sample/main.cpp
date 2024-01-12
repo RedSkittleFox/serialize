@@ -4,7 +4,12 @@
 
 int main()
 {
-	fox::serialize::serializable_members_list < > sus;
-
+	fox::serialize::bit_writer writer;
+	int a = 5;
+	writer | a;
+	fox::serialize::bit_reader reader(writer.data());
+	int b;
+	reader | b;
+	assert(a == b);
 	return 0;
 }

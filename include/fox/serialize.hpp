@@ -12,8 +12,11 @@
 #include <iterator>
 #include <span>
 #include <ranges>
+#include <vector>
 
 #include <fox/reflexpr.hpp>
+
+#include "serialize.hpp"
 
 namespace fox::serialize
 {
@@ -22,33 +25,72 @@ namespace fox::serialize
 
 	class bit_writer
 	{
-
+		std::vector<std::byte> buffer_;
 	public:
 		[[nodiscard]] void* write_bytes(std::size_t num_bytes)
 		{
-
+			const std::size_t offset = std::size(buffer_);
+			buffer_.resize(offset + num_bytes);
+			return static_cast<void*>(std::data(buffer_) + offset);
 		}
 
 		template<std::size_t NumBytes>
 		[[nodiscard]] void* write_bytes()
 		{
+			const std::size_t offset = std::size(buffer_);
+			buffer_.resize(offset + NumBytes);
+			return static_cast<void*>(std::data(buffer_) + offset);
+		}
 
+	public:
+		[[nodiscard]] std::span<const std::byte> data() const noexcept
+		{
+			return buffer_;
 		}
 	};
 
 	class bit_reader
 	{
+		std::vector<std::byte> buffer_;
+		std::size_t offset_{};
+	public:
+		template<std::ranges::range Range>
+		bit_reader(Range&& range)
+			requires std::is_trivial_v<std::ranges::range_value_t<Range>>
+		{
+			using value_type = std::ranges::range_value_t<Range>;
+			if constexpr (std::ranges::contiguous_range<Range>)
+			{
+				auto span = std::as_bytes(std::span(range));
+				buffer_ = span | std::ranges::to<std::vector<std::byte>>();
+			}
+			else
+			{
+				auto it = std::begin(range);
+				auto end = std::end(range);
+				buffer_ = std::ranges::subrange(it, end)
+					| std::transform(
+					[](const value_type& v) -> std::array<std::byte, sizeof(value_type)>
+					{ return std::bit_cast<std::array<std::byte, sizeof(value_type)>>(v); })
+					| std::views::join
+					| std::ranges::to<std::vector<std::byte>>();
+			}
+		}
 
 	public:
 		[[nodiscard]] const void* read_bytes(std::size_t num_bytes)
 		{
-
+			const void* ptr = static_cast<const void*>(std::data(buffer_) + num_bytes);
+			offset_ += num_bytes;
+			return ptr;
 		}
 
 		template<std::size_t NumBytes>
 		[[nodiscard]] const void* read_bytes()
 		{
-
+			const void* ptr = static_cast<const void*>(std::data(buffer_) + offset_);
+			offset_ += NumBytes;
+			return ptr;
 		}
 	};
 
@@ -73,9 +115,23 @@ namespace fox::serialize
 	template<class T>
 	static constexpr bool is_serializable_v = is_serializable<T>::value;
 
+	template<serializable T>
+	bit_writer& operator|(bit_writer& lhs, const T& rhs)
+	{
+		serialize_traits<T>::serialize(lhs, rhs);
+		return lhs;
+	}
+
+	template<serializable T>
+	bit_reader& operator|(bit_reader& lhs, T& rhs)
+	{
+		serialize_traits<T>::deserialize(lhs, rhs);
+		return lhs;
+	}
+
 	template<class T>
 		requires !std::ranges::range<T> && std::is_trivially_copyable_v<T>
-	struct serialize_traits
+	struct serialize_traits<T>
 	{
 		using _library_provided_trait = std::true_type;
 
@@ -108,7 +164,7 @@ namespace fox::serialize
 	}
 
 	template<std::ranges::range T>
-	struct serialize_traits
+	struct serialize_traits<T>
 	{
 		using _library_provided_trait = std::true_type;
 
@@ -125,6 +181,8 @@ namespace fox::serialize
 				std::is_trivially_copyable_v<T>
 				)
 			{
+				std::size_t range_size = std::size(range);
+				writer | range_size;
 				T* dest = static_cast<T*>(writer.write_bytes<sizeof(T)>());
 				std::memcpy(dest, std::data(range), sizeof(value_type) * std::size(range));
 			}
@@ -142,8 +200,28 @@ namespace fox::serialize
 		static void deserialize(bit_reader& reader, T& value)
 			requires deserializable<std::ranges::range_value_t<T>>
 		{
-			auto ptr = reader.read_bytes<sizeof(T)>();
-			value = *static_cast<const T*>(ptr);
+			using value_type = std::ranges::range_value_t<T>;
+
+			if
+			constexpr (
+				requires (std::span<const value_type> span) { value = span | std::ranges::to<T>(); }
+				)
+			{
+				std::size_t size{};
+				reader | size;
+				auto ptr = *static_cast<const T*>(reader.read_bytes(sizeof(value_type) * size));
+				
+				value = std::span<const value_type>(ptr, size) | std::ranges::to<T>();
+			}
+			else
+			{
+				std::size_t size{};
+				reader | size;
+				auto ptr = *static_cast<const T*>(reader.read_bytes(sizeof(value_type) * size));
+				value = std::views::iota(static_cast<std::size_t>(0), size)
+					| std::ranges::transform([&](auto) -> value_type { value_type v; serialize_traits<value_type>::deserialize(v); return v; })
+					| std::ranges::to<T>();
+			}
 		}
 	};
 
@@ -254,7 +332,7 @@ namespace fox::serialize
 			return out | v.x | v.y;
 		}
 
-		using v = serializable_members_list<&amogus::a, &amogus::b>;
+		// using v = serializable_members_list<&amogus::a, &amogus::b>;
 	};
 
 	
