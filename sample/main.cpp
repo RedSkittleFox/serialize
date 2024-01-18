@@ -6,10 +6,12 @@ int main()
 {
 	fox::serialize::bit_writer writer;
 	int a = 5;
-	writer | a;
+	std::string sugoma = "sus\n";
+	writer | a | sugoma;
 	fox::serialize::bit_reader reader(writer.data());
 	int b;
-	reader | b;
-	assert(a == b);
+	std::string out;
+	reader | b | out;
+	assert(a == b && sugoma == out);
 	return 0;
 }
