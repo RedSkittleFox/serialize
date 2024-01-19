@@ -1,8 +1,17 @@
 #include <gtest/gtest.h>
 #include <fox/serialize.hpp>
+
 #include <random>
 #include <ranges>
 #include <concepts>
+#include <unordered_map>
+#include <unordered_set>
+#include <map>
+#include <set>
+#include <array>
+#include <string>
+#include <string_view>
+#include <span>
 
 namespace fox::serialize
 {
@@ -65,7 +74,7 @@ namespace fox::serialize
 
 		[[nodiscard]] static T construct()
 		{
-			T v;
+			std::remove_const_t<T> v;
 			std::span<uint8_t> data_span(reinterpret_cast<uint8_t*>(std::addressof(v)), sizeof(v));
 
 			for( auto&& [to, from] : std::views::zip(data_span, std::views::repeat(data) | std::views::join ))
@@ -105,6 +114,19 @@ namespace fox::serialize
 		}
 	};
 
+	template<class T, std::size_t I>
+	struct test_trait<std::array<T, I>>
+	{
+		[[nodiscard]] static std::array<T, I> construct()
+		{
+			std::array<T, I> out {};
+			for (auto& e : out)
+				e = test_trait<T>::construct();
+
+			return out;
+		}
+	};
+
 	template<std::ranges::range T>
 		requires !std::is_trivial_v<T> && !std::ranges::borrowed_range<T>
 	struct test_trait<T>
@@ -119,7 +141,7 @@ namespace fox::serialize
 				values.push_back(test_trait<value_type>::construct());
 			}
 
-			return values | std::ranges::to<T>();
+			return values | std::ranges::to<std::remove_const_t<T>>();
 		}
 	};
 
@@ -141,20 +163,58 @@ namespace fox::serialize
 		}
 	};
 
+#ifdef FOX_SERIALIZE_HAS_REFLEXPR
+	struct aggregate_type
+	{
+		std::string v0_;
+		int v1_;
+		float v2_;
+		std::vector<int> v3_;
+		std::vector<std::string> v4_;
+	};
+
+	template<>
+	struct test_trait<aggregate_type>
+	{
+		[[nodiscard]] static aggregate_type construct()
+		{
+			return aggregate_type
+			{
+				.v0_ = "Foxes are great!",
+				.v1_ = 1,
+				.v2_ = 12.345f,
+				.v3_ = {1, 2, 3, 4, 5},
+				.v4_ = { "Foxes", "are", "great" }
+			};
+		}
+	};
+
+#endif
+
 	using types = ::testing::Types<
+#ifdef FOX_SERIALIZE_HAS_REFLEXPR
+		aggregate_type,
+#endif
 		char,
 		int,
 		unsigned int,
 		test_struct,
 		std::array<int, 10>,
+		std::array<std::string, 10>,
 		std::string_view,
 		std::span<int>,
 		std::vector<int>,
 		std::string,
+		std::vector<std::string>,
 		std::tuple<int, float>,
 		std::tuple<int, float, std::string>,
 		std::pair<int, int>,
-		std::pair<int, std::string>
+		std::pair<int, std::string>,
+		std::unordered_map<int, std::string>,
+		std::unordered_map<std::string, int>,
+		std::map<std::string, int>,
+		std::unordered_set<std::string>,
+		std::set<std::string>
 	>;
 
 	INSTANTIATE_TYPED_TEST_SUITE_P(fundamental, serialize_test, types);

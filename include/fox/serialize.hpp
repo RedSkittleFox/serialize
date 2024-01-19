@@ -9,16 +9,20 @@
 #endif
 
 #include <tuple>
+#include <utility>
 #include <iterator>
 #include <span>
 #include <ranges>
 #include <vector>
 #include <format>
 
+#ifdef FOX_SERIALIZE_HAS_REFLEXPR
 #include <fox/reflexpr.hpp>
+#endif
 
 namespace fox::serialize
 {
+#pragma region streams
 	class bit_writer;
 	class bit_reader;
 
@@ -93,20 +97,50 @@ namespace fox::serialize
 		}
 	};
 
-	template<class T>
-	struct serialize_traits;
+#pragma endregion streams
+
+#pragma region traits
+	/**
+	 * \brief Trait class used to provide serialization methods for a given type.
+	 * \tparam T Serialized type.
+	 */
+	template<class T> struct serialize_traits;
+
+	namespace details
+	{
+		// Internal serialization trait, selected if no public serialize_traits is available
+		template<class T> struct builtin_serialize_traits;
+
+		template<class T>
+		concept builtin_serializable = requires (bit_writer & writer, const T & a)
+		{
+			{ ::fox::serialize::details::builtin_serialize_traits<T>::serialize(writer, a)		} -> std::same_as<void>;
+		};
+
+		template<class T>
+		concept builtin_deserializable = requires (bit_reader & reader, T & b)
+		{
+			{ ::fox::serialize::details::builtin_serialize_traits<T>::deserialize(reader, b)	} -> std::same_as<void>;
+		};
+
+		template<class T>
+		concept custom_serializable = requires (bit_writer & writer, const T & a)
+		{
+			{ serialize_traits<T>::serialize(writer, a)		} -> std::same_as<void>;
+		};
+
+		template<class T>
+		concept custom_deserializable = requires (bit_reader & reader, T & b)
+		{
+			{ serialize_traits<T>::deserialize(reader, b)	} -> std::same_as<void>;
+		};
+	}
 
 	template<class T>
-	concept serializable = requires (bit_writer & writer, const T & a)
-	{
-		{ serialize_traits<T>::serialize(writer, a)		} -> std::same_as<void>;
-	};
+	concept serializable = ::fox::serialize::details::builtin_serializable<T> || ::fox::serialize::details::custom_serializable<T>;
 
 	template<class T>
-	concept deserializable = requires (bit_reader & reader, T & b)
-	{
-		{ serialize_traits<T>::deserialize(reader, b)	} -> std::same_as<void>;
-	};
+	concept deserializable = ::fox::serialize::details::builtin_deserializable<T> || ::fox::serialize::details::custom_deserializable<T>;
 
 	template<class T>
 	static constexpr bool is_serializable_v = serializable<T>;
@@ -120,59 +154,96 @@ namespace fox::serialize
 	template<class T>
 	struct is_deserializable : std::bool_constant<is_deserializable_v<T>> {};
 
+	namespace details
+	{
+		template<::fox::serialize::serializable T>
+		void do_serialize(bit_writer& lhs, const T& rhs)
+		{
+			if constexpr (::fox::serialize::details::custom_serializable<T>)
+			{
+				return serialize_traits<T>::serialize(lhs, rhs);
+			}
+			else
+			{
+				return ::fox::serialize::details::builtin_serialize_traits<T>::serialize(lhs, rhs);
+			}
+		}
+
+		template<::fox::serialize::deserializable T>
+		void do_deserialize(bit_reader& lhs, T& rhs)
+		{
+			if constexpr (::fox::serialize::details::custom_deserializable<T>)
+			{
+				return serialize_traits<T>::deserialize(lhs, rhs);
+			}
+			else
+			{
+				return ::fox::serialize::details::builtin_serialize_traits<T>::deserialize(lhs, rhs);
+			}
+		}
+	}
+
 	template<serializable T>
 	bit_writer& operator|(bit_writer& lhs, const T& rhs)
 	{
-		serialize_traits<T>::serialize(lhs, rhs);
+		::fox::serialize::details::do_serialize<T>(lhs, rhs);
 		return lhs;
 	}
 
-	template<serializable T>
+	template<deserializable T>
 	bit_reader& operator|(bit_reader& lhs, T& rhs)
 	{
-		serialize_traits<T>::deserialize(lhs, rhs);
+		::fox::serialize::details::do_deserialize<T>(lhs, rhs);
 		return lhs;
 	}
 
-	template<class T>
-		requires !std::ranges::range<T> && std::is_trivially_copyable_v<T>
-	struct serialize_traits<T>
-	{
-		using _library_provided_trait = std::true_type;
 
-		static void serialize(bit_writer& writer, const T& value)
-		{
-			auto ptr = writer.write_bytes<sizeof(T)>();
-			*static_cast<T*>(ptr) = value;
-		}
-
-		static void deserialize(bit_reader& reader, T& value)
-		{
-			auto ptr = reader.read_bytes<sizeof(T)>();
-			value = *static_cast<const T*>(ptr);
-		}
-	};
+#pragma endregion traits
 
 	namespace details
 	{
-		template<class T, class U>
-		concept to_range_convertible = requires(T & v, std::span<const U> span)
-		{
-			{ span | std::ranges::to<T>() } -> std::convertible_to<T>;
-		} && std::same_as<std::ranges::range_value_t<T>, U>;
+		// This section provides implementation of default serialization functions for most common cases.
+		// Serializations are divided into sections and then later bunched together, this simplifies SFINAE-compatible implementation later
 
-		template<class T>
-		concept uses_builtin_serializer = requires
+#pragma region builtin_serialize_const_types
+		// Implementation for const-types
+		template<class T> requires builtin_serializable<T>
+		struct builtin_serialize_traits<const T>
 		{
-			{ serialize_traits<T>::value_type } -> std::same_as<std::true_type>;
+			static void serialize(bit_writer& writer, const T& value)
+			{
+				return builtin_serialize_traits<T>::serialize(writer, value);
+			}
 		};
+#pragma endregion builtin_serialize_const_types
 
+#pragma region builtin_serialize_trivially_copyable
+		// Implementation for trivially copyable types
+		template<class T> requires !std::ranges::range<T> && std::is_trivially_copyable_v<T>
+		struct builtin_serialize_traits<T>
+		{
+			static void serialize(bit_writer& writer, const T& value)
+			{
+				auto ptr = writer.write_bytes<sizeof(T)>();
+				*static_cast<T*>(ptr) = value;
+			}
+
+			static void deserialize(bit_reader& reader, T& value)
+			{
+				auto ptr = reader.read_bytes<sizeof(T)>();
+				value = *static_cast<const T*>(ptr);
+			}
+		};
+#pragma endregion builtin_serialize_trivially_copyable
+
+#pragma region builtin_serialize_ranges
 		template<class T>
 		struct is_array : std::false_type {};
 
 		template<class T, std::size_t Size>
 		struct is_array<std::array<T, Size>> : std::true_type {};
 
+		// Helper traits for std::ranges::to - concept 
 		template<class Container>
 		constexpr bool reservable_container =
 			std::ranges::sized_range<Container> &&
@@ -191,6 +262,7 @@ namespace fox::serialize
 				requires {c.insert(c.end(), std::forward<Ref>(ref)); });
 		};
 
+		// std::ranges::to concept, std::ranges::to isn't SFINAE compatible - it uses static_assert
 		template<class C, std::ranges::input_range R, class... Args>
 		constexpr bool is_ranges_to_convertible =
 			// Mandates: C is a cv-unqualified class type
@@ -217,6 +289,7 @@ namespace fox::serialize
 			( std::ranges::input_range<std::ranges::range_reference_t<R>> && std::convertible_to<std::ranges::range_reference_t<R>, C> )
 			);
 
+#pragma region tuple_like
 		template<template <std::size_t, class> class Trait, class T, class>
 		struct indexed_conjunction_proxy : std::false_type {};
 
@@ -252,147 +325,167 @@ namespace fox::serialize
 
 		template<class T>
 		concept tuple_like = is_tuple_like_v<T>;
-	}
+#pragma endregion tuple_like
 
-	template<std::ranges::range T>
-	struct serialize_traits<T>
-	{
-		using _library_provided_trait = std::true_type;
-
-		static void serialize(bit_writer& writer, const T& range) requires
-			serializable<std::ranges::range_value_t<T>>
+		template<class T>
+		struct tuple_like_remove_const
 		{
-			using value_type = std::ranges::range_value_t<T>;
+			using type = T;
+		};
 
-			std::size_t range_size = std::size(range);
-			writer | range_size;
-
-			// Check if we can memcpy the range
-			if
-			constexpr( 
-				std::ranges::contiguous_range<T> && 
-				::fox::serialize::details::uses_builtin_serializer<value_type> == false&&
-				std::is_trivially_copyable_v<T>
-				)
-			{
-				T* dest = static_cast<T*>(writer.write_bytes(sizeof(value_type) * range_size));
-				std::memcpy(dest, std::data(range), sizeof(value_type) * range_size);
-			}
-			else // We iterate over the range
-			{
-				for(auto&& e : range)
-				{
-					writer | e;
-				}
-			}
-		}
-
-		static void deserialize(bit_reader& reader, T& value) requires
-			!std::ranges::borrowed_range<T> && 
-			deserializable<std::ranges::range_value_t<T>> &&
-			(
-				details::is_array<T>::value || 
-				::fox::serialize::details::is_ranges_to_convertible<T, std::span<const std::ranges::range_value_t<T>>>
-			)
+		template<template<class...> class Tuple, class... Ts> requires
+			is_tuple_like_v<Tuple<Ts...>> && std::is_constructible_v<Tuple<Ts...>, Tuple<std::remove_const_t<Ts>...>>
+		struct tuple_like_remove_const<Tuple<Ts...>>
 		{
-			using value_type = std::ranges::range_value_t<T>;
-			using const_value_type = std::add_const_t<std::ranges::range_value_t<T>>;
+			using type = Tuple<std::remove_const_t<Ts>...>;
+		};
 
-			std::size_t size{};
-			reader | size;
-
-			if
-			constexpr (
-				::fox::serialize::details::is_ranges_to_convertible<T, std::span<const value_type>> &&
-				::fox::serialize::details::uses_builtin_serializer<value_type> == false &&
-				std::is_trivially_default_constructible_v<value_type> && std::is_trivially_copyable_v<value_type>
-				)
+		template<std::ranges::range T>
+		struct builtin_serialize_traits<T>
+		{
+			static void serialize(bit_writer& writer, const T& range) requires
+				serializable<std::ranges::range_value_t<T>>
 			{
-				const value_type* ptr = static_cast<const value_type*>(reader.read_bytes(sizeof(value_type) * size));
-				value = std::span<const_value_type >{ ptr, size } | std::ranges::to<T>();
-			}
-			else if constexpr(::fox::serialize::details::is_array<T>::value)
-			{
-				if (size > std::size(value))
-				{
-					throw std::out_of_range(std::format("Trying to read ranges ({} elements) bigger than the array ({} elements).",
-						size, std::size(value))
-					);
-				}
+				using value_type = std::ranges::range_value_t<T>;
 
-				if constexpr(std::is_trivially_default_constructible_v<value_type> && std::is_trivially_copyable_v<value_type>)
+				const std::size_t range_size = std::size(range);
+				writer | range_size;
+
+				// Check if we can memcpy the range
+				constexpr bool memcpy_compatible =
+					std::ranges::contiguous_range<T> &&
+					static_cast<bool>(fox::serialize::details::custom_serializable<value_type>) == false &&
+					static_cast<bool>(fox::serialize::details::custom_deserializable<value_type>) == false &&
+					std::is_trivially_copyable_v<value_type>;
+
+				if constexpr (memcpy_compatible)
 				{
-				
-					auto ptr = static_cast<const value_type*>(reader.read_bytes(sizeof(value_type) * size));
-					std::memcpy(static_cast<void*>(std::data(value)), static_cast<const void*>(ptr), sizeof(value_type)* size);
+					auto dest = static_cast<std::remove_const_t<T>*>(writer.write_bytes(sizeof(value_type) * range_size));
+					(void)std::memcpy(dest, std::data(range), sizeof(value_type) * range_size);
 				}
-				else
+				else // We iterate over the range
 				{
-					for (auto&& e : value)
+					for (auto&& e : range)
 					{
-						reader | e;
+						writer | e;
 					}
 				}
 			}
-			else
+
+			static constexpr bool is_deserializable =
+				!std::ranges::borrowed_range<T> &&
+				deserializable<tuple_like_remove_const<std::ranges::range_value_t<T>>> && // In case we are tuple with const member, remove const if constructible from it
+				(::fox::serialize::details::is_array<T>::value || ::fox::serialize::details::is_ranges_to_convertible<T, std::span<const std::ranges::range_value_t<T>>>);
+
+			static void deserialize(bit_reader& reader, T& value) requires is_deserializable
+				
 			{
-				auto ptr = static_cast<const T*>(reader.read_bytes(sizeof(value_type) * size));
-				value = std::views::iota(static_cast<std::size_t>(0), size)
-					| std::ranges::transform([&](auto) -> value_type { value_type v; serialize_traits<value_type>::deserialize(v); return v; })
-					| std::views::as_rvalue
-					| std::ranges::to<T>();
+				using value_type = typename tuple_like_remove_const<std::ranges::range_value_t<T>>::type;
+				using const_value_type = std::add_const_t<std::ranges::range_value_t<T>>;
+
+				std::size_t size{};
+				reader | size;
+
+				// Check if we can memcpy the range
+				constexpr bool memcpy_compatible =
+					static_cast<bool>(fox::serialize::details::custom_serializable<value_type>) == false &&
+					static_cast<bool>(fox::serialize::details::custom_deserializable<value_type>) == false &&
+					std::is_trivially_copyable_v<value_type>;
+
+				if constexpr (::fox::serialize::details::is_ranges_to_convertible<T, std::span<const value_type>> && memcpy_compatible)
+				{
+					const value_type* ptr = static_cast<const value_type*>(reader.read_bytes(sizeof(value_type) * size));
+					value = std::span<const_value_type >{ ptr, size } | std::ranges::to<T>();
+				}
+				else if constexpr (::fox::serialize::details::is_array<T>::value)
+				{
+					if (size != std::size(value))
+					{
+						throw std::out_of_range(std::format("Trying to read ranges ({} elements) of a different size than the array ({} elements).",
+							size, std::size(value))
+						);
+					}
+
+					// Memcpy array
+					if constexpr (memcpy_compatible)
+					{
+						auto ptr = static_cast<const value_type*>(reader.read_bytes(sizeof(value_type) * size));
+						std::memcpy(static_cast<void*>(std::data(value)), static_cast<const void*>(ptr), sizeof(value_type) * size);
+					}
+					else // Or iterate over elements and serialize them
+					{
+						for (auto&& e : value)
+						{
+							reader | e;
+						}
+					}
+				}
+				else // Iterate over elements, serialize them and then convert them into the range
+				{
+					value = std::views::iota(static_cast<std::size_t>(0), size)
+						| std::views::transform([&](auto) -> value_type { value_type v; reader | v; return v; })
+						| std::views::as_rvalue
+						| std::ranges::to<T>();
+				}
 			}
-		}
-	};
+		};
 
-	template<details::tuple_like T>
-	requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T>
-	struct serialize_traits<T>
-	{
-		using _library_provided_trait = std::true_type;
+#pragma endregion builtin_serialize_ranges
 
-	private:
-		template<std::size_t Idx, class T>
-		struct _tuple_element_serializable : is_serializable<std::tuple_element_t<Idx, T>> {};
-
-		template<std::size_t Idx, class T>
-		struct _tuple_element_deserializable : is_deserializable<std::tuple_element_t<Idx, T>> {};
-
-	public:
-		static void serialize(bit_writer& writer, const T& tuple)
-			requires details::indexed_conjunction<_tuple_element_serializable, T, std::tuple_size_v<T>>::value
+#pragma region builtin_tuple_like
+		template<class T>
+			requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && ::fox::serialize::details::tuple_like<T>
+		struct builtin_serialize_traits<T>
 		{
-			[&] <std::size_t... Idx>(std::index_sequence<Idx...>)
+			template<std::size_t Idx, class U>
+			struct tuple_element_serializable : is_serializable<std::tuple_element_t<Idx, U>> {};
+
+			template<std::size_t Idx, class U>
+			struct tuple_element_deserializable : is_deserializable<std::tuple_element_t<Idx, U>> {};
+
+			static void serialize(bit_writer& writer, const T& tuple)
+				requires details::indexed_conjunction<tuple_element_serializable, T, std::tuple_size_v<T>>::value
 			{
-				( serialize_traits<std::tuple_element_t<Idx, T>>::serialize(writer, std::get<Idx>(tuple)), ...);
-			}(std::make_index_sequence<std::tuple_size_v<T>>{});
-		}
+				[&] <std::size_t... Idx>(std::index_sequence<Idx...>)
+				{
+					(::fox::serialize::details::do_serialize<std::tuple_element_t<Idx, T>>(writer, std::get<Idx>(tuple)), ...);
+				}(std::make_index_sequence<std::tuple_size_v<T>>{});
+			}
 
-		static void deserialize(bit_reader& reader, T& tuple)
-			requires details::indexed_conjunction<_tuple_element_deserializable, T, std::tuple_size_v<T>>::value
-		{
-			[&]<std::size_t... Idx>(std::index_sequence<Idx...>)
+			static void deserialize(bit_reader& reader, T& tuple) requires
+				::fox::serialize::details::indexed_conjunction<tuple_element_deserializable, T, std::tuple_size_v<T>>::value
 			{
-				(serialize_traits<std::tuple_element_t<Idx, T>>::deserialize(reader, std::get<Idx>(tuple)), ...);
-			}(std::make_index_sequence<std::tuple_size_v<T>>{});
-		}
-	};
+				[&] <std::size_t... Idx>(std::index_sequence<Idx...>)
+				{
+					(::fox::serialize::details::do_deserialize<std::tuple_element_t<Idx, T>>(reader, std::get<Idx>(tuple)), ...);
+				}(std::make_index_sequence<std::tuple_size_v<T>>{});
+			}
+		};
+#pragma endregion builtin_tuple_like
 
-	template<::fox::reflexpr::aggregate T>
-		requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && !details::tuple_like<T>
-	struct serialize_traits<T>
-	{
-		static void serialize(bit_writer& writer, const T& aggregate)
+#pragma region builtin_aggregate_types
+#ifdef FOX_SERIALIZE_HAS_REFLEXPR
+		template<::fox::reflexpr::aggregate T>
+			requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && !::fox::serialize::details::tuple_like<T>
+		struct builtin_serialize_traits<T>
 		{
-			using tuple = decltype(fox::reflexpr::make_tuple(std::declval<T>()));
-			fox::reflexpr::for_each_member_variable(aggregate, [&](auto&& v) { writer | v; });
-		}
+			static void serialize(bit_writer& writer, const T& aggregate)
+				requires serializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
+			{
+				auto tie = fox::reflexpr::tie(aggregate);
+				::fox::serialize::details::do_serialize<decltype(tie)>(writer, tie);
+			}
 
-		static void deserialize(bit_reader& reader, T& aggregate)
-		{
-			fox::reflexpr::for_each_member_variable(aggregate, [&](auto&& v) { reader | v; });
-		}
-	};
+			static void deserialize(bit_reader& reader, T& aggregate)
+				requires deserializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
+			{
+				auto tie = fox::reflexpr::tie(aggregate);
+				::fox::serialize::details::do_deserialize<decltype(tie)>(reader, tie);
+			}
+		};
+#endif
+#pragma endregion builtin_aggregate_types
+	}
 
 	class basic_bit_buffer
 	{
