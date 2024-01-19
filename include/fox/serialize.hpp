@@ -331,7 +331,7 @@ namespace fox::serialize
 
 #pragma region builtin_serialize_trivially_copyable
 		// Implementation for trivially copyable types
-		template<class T> requires !std::ranges::range<T> && std::is_trivially_copyable_v<T>
+		template<class T> requires ( !std::ranges::range<T> && std::is_trivially_copyable_v<T> )
 		struct builtin_serialize_traits<T>
 		{
 			static void serialize(bit_writer& writer, const T& value)
@@ -563,7 +563,7 @@ namespace fox::serialize
 
 #pragma region builtin_tuple_like
 		template<class T>
-			requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && ::fox::serialize::details::tuple_like<T>
+			requires ( !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && ::fox::serialize::details::tuple_like<T> )
 		struct builtin_serialize_traits<T>
 		{
 			template<std::size_t Idx, class U>
@@ -595,7 +595,7 @@ namespace fox::serialize
 #pragma region builtin_aggregate_types
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
 		template<::fox::reflexpr::aggregate T>
-			requires !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && !::fox::serialize::details::tuple_like<T>
+			requires ( !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && !::fox::serialize::details::tuple_like<T> )
 		struct builtin_serialize_traits<T>
 		{
 			static void serialize(bit_writer& writer, const T& aggregate)

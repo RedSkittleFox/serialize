@@ -128,7 +128,7 @@ namespace fox::serialize
 	};
 
 	template<std::ranges::range T>
-		requires !std::is_trivial_v<T> && !std::ranges::borrowed_range<T>
+		requires ( !std::is_trivial_v<T> && !std::ranges::borrowed_range<T> )
 	struct test_trait<T>
 	{
 		[[nodiscard]] static T construct()

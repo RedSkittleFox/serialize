@@ -4,6 +4,7 @@ bin-lib/*
 bin-game/*
 lib/*
 output/*
+output-clang/*
 
 .vs
 
