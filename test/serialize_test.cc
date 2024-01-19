@@ -86,7 +86,7 @@ namespace fox::serialize
 		}
 	};
 
-	struct test_struct
+	struct udt_trivial
 	{
 		int a;
 		float b;
@@ -163,22 +163,61 @@ namespace fox::serialize
 		}
 	};
 
+	template<class... Args>
+	struct test_trait<std::variant<Args...>>
+	{
+		[[nodiscard]] static std::variant<Args...> construct()
+		{
+			using last = std::tuple_element_t<sizeof...(Args) - 1, std::tuple<Args...>>;
+			return std::variant<Args...>(std::in_place_type<last>, test_trait<last>::construct());
+		}
+	};
+
+	template<class T>
+	struct test_trait<std::optional<T>>
+	{
+		[[nodiscard]] static std::optional<T> construct()
+		{
+			return std::optional<T>(test_trait<T>::construct());
+		}
+	};
+
+	template<>
+	struct test_trait<std::optional<std::nullptr_t>>
+	{
+		[[nodiscard]] static std::optional<std::nullptr_t> construct()
+		{
+			return {};
+		}
+	};
+
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
-	struct aggregate_type
+	struct udt_aggregate_type
 	{
 		std::string v0_;
 		int v1_;
 		float v2_;
 		std::vector<int> v3_;
 		std::vector<std::string> v4_;
+
+		[[nodiscard]] bool operator==(const udt_aggregate_type& rhs) const
+		{
+			return std::tie(v0_, v1_, v2_, v3_, v4_) ==
+				std::tie(rhs.v0_, rhs.v1_, rhs.v2_, rhs.v3_, rhs.v4_);
+		}
+
+		[[nodiscard]] bool operator!=(const udt_aggregate_type& rhs) const
+		{
+			return !(*this == rhs);
+		}
 	};
 
 	template<>
-	struct test_trait<aggregate_type>
+	struct test_trait<udt_aggregate_type>
 	{
-		[[nodiscard]] static aggregate_type construct()
+		[[nodiscard]] static udt_aggregate_type construct()
 		{
-			return aggregate_type
+			return udt_aggregate_type
 			{
 				.v0_ = "Foxes are great!",
 				.v1_ = 1,
@@ -191,14 +230,111 @@ namespace fox::serialize
 
 #endif
 
-	using types = ::testing::Types<
+	template<std::size_t I>
+	class udt_serialize_from_members
+	{
+		std::string v0_;
+		int v1_ = 0;
+		float v2_ = 0.f;
+		std::vector<int> v3_;
+		std::vector<std::string> v4_;
+
+	public:
+		udt_serialize_from_members() = default;
+
+		udt_serialize_from_members(std::string v0, int v1, float v2, std::vector<int> v3, std::vector<std::string> v4)
+			: v0_(v0), v1_(v1), v2_(v2), v3_(v3), v4_(v4) {}
+
+		template<class> friend struct test_trait;
+
+		template<class> friend struct serialize_traits;
+
+		[[nodiscard]] bool operator==(const udt_serialize_from_members& rhs) const
+		{
+			return std::tie(v0_, v1_, v2_, v3_, v4_) == 
+				std::tie(rhs.v0_, rhs.v1_, rhs.v2_, rhs.v3_, rhs.v4_);
+		}
+
+		[[nodiscard]] bool operator!=(const udt_serialize_from_members& rhs) const
+		{
+			return !(*this == rhs);
+		}
+
+		using serialize_traits = std::conditional_t<
+			I == 1,
+			serialize_from_members<
+			udt_serialize_from_members,
+			&udt_serialize_from_members::v0_,
+			&udt_serialize_from_members::v1_,
+			&udt_serialize_from_members::v2_,
+			&udt_serialize_from_members::v3_,
+			&udt_serialize_from_members::v4_
+			>,
+			void
+		>;
+
+		void serialize(bit_writer& writer) const requires (I == 2)
+		{
+			writer | v0_ | v1_ | v2_ | v3_ | v4_;
+		}
+
+		void deserialize(bit_reader& reader) requires (I == 2)
+		{
+			reader | v0_ | v1_ | v2_ | v3_ | v4_;
+		}
+
+		static void serialize(bit_writer& writer, const udt_serialize_from_members& o) requires (I == 3 || I == 4)
+		{
+			writer | o.v0_ | o.v1_ | o.v2_ | o.v3_ | o.v4_;
+		}
+
+		static void deserialize(bit_reader& reader, udt_serialize_from_members& o) requires (I == 3)
+		{
+			reader | o.v0_ | o.v1_ | o.v2_ | o.v3_ | o.v4_;
+		}
+
+		udt_serialize_from_members(from_bit_reader_t, bit_reader& reader) requires (I == 4)
+		{
+			reader | v0_ | v1_ | v2_ | v3_ | v4_;
+		}
+	};
+
+	template<std::size_t I>
+	struct test_trait<udt_serialize_from_members<I>>
+	{
+		[[nodiscard]] static udt_serialize_from_members<I> construct()
+		{
+			return udt_serialize_from_members<I>
+			(
+				"Foxes are great!",
+				1,
+				12.345f,
+				{ 1, 2, 3, 4, 5 },
+				{ "Foxes", "are", "great" }
+			);
+		}
+	};
+
+	template<>
+	struct serialize_traits<udt_serialize_from_members<0>> :
+		serialize_from_members<
+			udt_serialize_from_members<0>,
+			&udt_serialize_from_members<0>::v0_,
+			&udt_serialize_from_members<0>::v1_,
+			&udt_serialize_from_members<0>::v2_,
+			&udt_serialize_from_members<0>::v3_,
+			&udt_serialize_from_members<0>::v4_
+		>
+	{};
+
+	using types = ::testing::Types <
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
-		aggregate_type,
+		udt_aggregate_type,
 #endif
 		char,
 		int,
 		unsigned int,
-		test_struct,
+		udt_trivial,
 		std::array<int, 10>,
 		std::array<std::string, 10>,
 		std::string_view,
@@ -214,7 +350,16 @@ namespace fox::serialize
 		std::unordered_map<std::string, int>,
 		std::map<std::string, int>,
 		std::unordered_set<std::string>,
-		std::set<std::string>
+		std::set<std::string>,
+		std::variant<std::string, int, std::vector<int>>,
+		std::optional<std::string>,
+		std::optional<int>,
+		std::optional<std::nullptr_t>,
+		udt_serialize_from_members<0>,
+		udt_serialize_from_members<1>,
+		udt_serialize_from_members<2>,
+		udt_serialize_from_members<3>,
+		udt_serialize_from_members<4>
 	>;
 
 	INSTANTIATE_TYPED_TEST_SUITE_P(fundamental, serialize_test, types);

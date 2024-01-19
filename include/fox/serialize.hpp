@@ -15,6 +15,7 @@
 #include <ranges>
 #include <vector>
 #include <format>
+#include <variant>
 
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
 #include <fox/reflexpr.hpp>
@@ -51,6 +52,9 @@ namespace fox::serialize
 			return buffer_;
 		}
 	};
+
+	struct from_bit_reader_t {};
+	constexpr from_bit_reader_t from_bit_reader;
 
 	class bit_reader
 	{
@@ -124,16 +128,73 @@ namespace fox::serialize
 		};
 
 		template<class T>
-		concept custom_serializable = requires (bit_writer & writer, const T & a)
+		concept custom_serializable_serialize_trait = requires (bit_writer & writer, const T & a)
 		{
-			{ serialize_traits<T>::serialize(writer, a)		} -> std::same_as<void>;
+			serialize_traits<T>::serialize(writer, a);
 		};
 
 		template<class T>
-		concept custom_deserializable = requires (bit_reader & reader, T & b)
+		concept custom_serializable_member_function = requires (bit_writer & writer, const T & a)
 		{
-			{ serialize_traits<T>::deserialize(reader, b)	} -> std::same_as<void>;
+			a.serialize(writer);
 		};
+
+		template<class T>
+		concept custom_serializable_static_member_function = requires (bit_writer & writer, const T & a)
+		{
+			T::serialize(writer, a);
+		};
+
+		template<class T>
+		concept custom_serializable_member_serialize_trait = requires (bit_writer & writer, const T & a)
+		{
+			T::serialize_trait::serialize(writer, a);
+		};
+
+		template<class T>
+		concept custom_serializable =
+			custom_serializable_serialize_trait<T> ||
+			custom_serializable_member_function<T> ||
+			custom_serializable_static_member_function<T> ||
+			custom_serializable_member_serialize_trait<T>;
+
+		template<class T>
+		concept custom_deserializable_serializable_trait = requires (bit_reader & reader, T & b)
+		{
+			serialize_traits<T>::deserialize(reader, b);
+		};
+
+		template<class T>
+		concept custom_deserializable_member_function = requires (bit_reader & reader, T& a)
+		{
+			a.deserialize(reader);
+		};
+
+		template<class T>
+		concept custom_deserializable_static_member_function = requires (bit_reader & reader, T& a)
+		{
+			T::deserialize(reader, a);
+		};
+
+		template<class T>
+		concept custom_deserializable_member_serialize_trait = requires (bit_reader & reader, T& a)
+		{
+			T::serialize_trait::deserialize(reader, a);
+		};
+
+		template<class T>
+		concept custom_deserializable_construct = requires (bit_reader & reader, T & a)
+		{
+			a = T(from_bit_reader, reader);
+		};
+
+		template<class T>
+		concept custom_deserializable =
+			custom_deserializable_serializable_trait<T> ||
+			custom_deserializable_member_function<T> ||
+			custom_deserializable_static_member_function<T> ||
+			custom_deserializable_member_serialize_trait<T> ||
+			custom_deserializable_construct<T>;
 	}
 
 	template<class T>
@@ -161,7 +222,22 @@ namespace fox::serialize
 		{
 			if constexpr (::fox::serialize::details::custom_serializable<T>)
 			{
-				return serialize_traits<T>::serialize(lhs, rhs);
+				if constexpr (custom_serializable_serialize_trait<T>)
+				{
+					serialize_traits<T>::serialize(lhs, rhs);
+				}
+				else if constexpr (custom_serializable_member_function<T>)
+				{
+					rhs.serialize(lhs);
+				}
+				else if constexpr(custom_serializable_static_member_function<T>)
+				{
+					T::serialize(lhs, rhs);
+				}
+				else if constexpr(custom_serializable_member_serialize_trait<T>)
+				{
+					T::serialize_trait::serialize(lhs, rhs);
+				}
 			}
 			else
 			{
@@ -174,7 +250,26 @@ namespace fox::serialize
 		{
 			if constexpr (::fox::serialize::details::custom_deserializable<T>)
 			{
-				return serialize_traits<T>::deserialize(lhs, rhs);
+				if constexpr(custom_deserializable_serializable_trait<T>)
+				{
+					serialize_traits<T>::deserialize(lhs, rhs);
+				}
+				else if constexpr(custom_deserializable_member_function<T>)
+				{
+					rhs.deserialize(lhs);
+				}
+				else if constexpr(custom_deserializable_static_member_function<T>)
+				{
+					T::deserialize(lhs, rhs);
+				}
+				else if constexpr(custom_deserializable_member_serialize_trait<T>)
+				{
+					T::serialize_trait::deserialize(lhs, rhs);
+				}
+				else if constexpr(custom_deserializable_construct<T>)
+				{
+					rhs = T(from_bit_reader, lhs);
+				}
 			}
 			else
 			{
@@ -212,10 +307,27 @@ namespace fox::serialize
 		{
 			static void serialize(bit_writer& writer, const T& value)
 			{
-				return builtin_serialize_traits<T>::serialize(writer, value);
+				do_serialize<T>(writer, value);
 			}
 		};
 #pragma endregion builtin_serialize_const_types
+
+#pragma region builtin_serialize_reference_types
+		// Implementation for const-types
+		template<class T> requires builtin_serializable<T>
+		struct builtin_serialize_traits<T&>
+		{
+			static void serialize(bit_writer& writer, const T& value)
+			{
+				do_serialize<T>(writer, value);
+			}
+
+			static void deserialize(bit_reader& reader, T& value)
+			{
+				do_deserialize<T>(reader, value);
+			}
+		};
+#pragma endregion builtin_serialize_reference_types
 
 #pragma region builtin_serialize_trivially_copyable
 		// Implementation for trivially copyable types
@@ -247,7 +359,7 @@ namespace fox::serialize
 		template<class Container>
 		constexpr bool reservable_container =
 			std::ranges::sized_range<Container> &&
-			requires(Container& c, std::ranges::range_size_t<Container> n)
+		requires(Container& c, std::ranges::range_size_t<Container> n)
 		{
 			c.reserve(n);
 			{ c.capacity() } -> std::same_as<decltype(n)>;
@@ -375,7 +487,10 @@ namespace fox::serialize
 			static constexpr bool is_deserializable =
 				!std::ranges::borrowed_range<T> &&
 				deserializable<tuple_like_remove_const<std::ranges::range_value_t<T>>> && // In case we are tuple with const member, remove const if constructible from it
-				(::fox::serialize::details::is_array<T>::value || ::fox::serialize::details::is_ranges_to_convertible<T, std::span<const std::ranges::range_value_t<T>>>);
+				(::fox::serialize::details::is_array<T>::value || 
+					(
+						::fox::serialize::details::is_ranges_to_convertible<T, std::span<const std::ranges::range_value_t<T>>> &&
+					(std::is_default_constructible_v<std::ranges::range_value_t<T>> || details::custom_deserializable_construct<T>)));
 
 			static void deserialize(bit_reader& reader, T& value) requires is_deserializable
 				
@@ -423,7 +538,21 @@ namespace fox::serialize
 				else // Iterate over elements, serialize them and then convert them into the range
 				{
 					value = std::views::iota(static_cast<std::size_t>(0), size)
-						| std::views::transform([&](auto) -> value_type { value_type v; reader | v; return v; })
+						| std::views::transform([&](auto) -> value_type
+						{
+							if constexpr(custom_deserializable_construct<value_type>)
+							{
+								// Construct with reader if possible
+								value_type v(from_bit_reader, reader);
+								return v;
+							}
+							else
+							{
+								value_type v;
+								reader | v;
+								return v;
+							}
+						})
 						| std::views::as_rvalue
 						| std::ranges::to<T>();
 				}
@@ -485,111 +614,134 @@ namespace fox::serialize
 		};
 #endif
 #pragma endregion builtin_aggregate_types
+
+#pragma region builtin_variant
+
+		template<class... Args>
+		struct builtin_serialize_traits<std::variant<Args...>>
+		{
+			static void serialize(bit_writer& writer, const std::variant<Args...>& variant)
+				requires std::conjunction_v<is_serializable<Args>...>
+			{
+				const std::size_t idx = variant.index();
+				writer | idx;
+				if(idx != std::variant_npos)
+				{
+					std::visit([&](auto&& v) { writer | v; }, variant);
+				}
+			}
+
+			static void deserialize(bit_reader& reader, std::variant<Args...>& variant)
+				requires std::conjunction_v<is_deserializable<Args>...>
+			{
+				std::size_t idx;
+				reader | idx;
+				if (idx != std::variant_npos)
+				{
+					if (idx >= std::variant_size_v<std::variant<Args...>>)
+						throw std::invalid_argument("Invalid variant index."); // TODO: Custom exception type
+
+					[&]<std::size_t... Is>(std::index_sequence<Is...>)
+					{
+						([&]<std::size_t I>(std::in_place_index_t<I>)
+						{
+							if(I == idx)
+							{
+								using c_alternative = std::variant_alternative_t<I, std::variant<Args...>>;
+								using alternative = std::remove_const_t<c_alternative>;
+
+								if constexpr (custom_deserializable_construct<alternative>)
+								{
+									// Construct with reader if possible
+									variant.template emplace<c_alternative>(from_bit_reader, reader);
+								}
+								else
+								{
+									reader | variant.template emplace<c_alternative>();
+								}
+							}
+						}(std::in_place_index<Is>), ...);
+					}(std::index_sequence_for<Args...>{});
+				}
+			}
+		};
+
+#pragma endregion builtin_variant
+
+#pragma region builtin_optional
+
+		template<class T>
+		struct builtin_serialize_traits<std::optional<T>>
+		{
+			static void serialize(bit_writer& writer, const std::optional<T>& optional)
+				requires is_serializable_v<T>
+			{
+				writer | optional.has_value();
+				if(optional.has_value())
+				{
+					writer | optional.value();
+				}
+			}
+
+			static void deserialize(bit_reader& reader, std::optional<T>& optional)
+				requires is_deserializable_v<T>
+			{
+				bool has_value = false;
+				reader | has_value;
+				if(has_value)
+				{
+					if constexpr (custom_deserializable_construct<T>)
+					{
+						// Construct with reader if possible
+						optional.emplace(from_bit_reader, reader);
+					}
+					else
+					{
+						reader | optional.emplace();
+					}
+				}
+				else
+				{
+					optional.reset();
+				}
+
+			}
+		};
+
+#pragma endregion builtin_variant
+
+		template<class C, class Member>
+		struct is_member_object_pointer_of : std::false_type {};
+
+		template<class C, class T>
+		struct is_member_object_pointer_of<C, T C::*> : std::true_type {};
+
+		template<class T>
+		struct remove_member_pointer;
+
+		template<class C, class T>
+		struct remove_member_pointer<T C::*>
+		{
+			using type = T;
+		};
 	}
 
-	class basic_bit_buffer
+	template<class T, auto... Members> requires
+	std::conjunction_v<::fox::serialize::details::is_member_object_pointer_of<T, decltype(Members)>...>
+	struct serialize_from_members
 	{
-		
-	};
-
-	class amogus
-	{
-		int a;
-		int b;
-
-		template<class> friend struct serializer;
-	};
-
-	template<class Ptr>
-	struct type_of_owning_object;
-
-	template<class T, class U>
-	struct type_of_owning_object<U T::*>
-	{
-		using type = T;
-		using member_object_type = U;
-	};
-
-	template<auto... MemberPointers>
-		requires (sizeof...(MemberPointers) == 0)
-	struct serializable_members_list
-	{
-		template<class U>
-		static bit_writer& serialize(bit_writer& out, const U& object)
+		static void serialize(bit_writer& writer, const T& v)
+			requires std::conjunction_v<::fox::serialize::is_serializable<typename ::fox::serialize::details::remove_member_pointer<decltype(Members)>::type>...>
 		{
-			return out;
+			((writer | (v.*Members)), ...);
 		}
 
-		template<class U>
-		static bit_reader& deserialize(bit_reader& in, U& object)
+		static void deserialize(bit_reader& reader, T& v)
+			requires std::conjunction_v<::fox::serialize::is_deserializable<typename ::fox::serialize::details::remove_member_pointer<decltype(Members)>::type>...>
 		{
-			return in;
+			((reader | (v.*Members)), ...);
 		}
 	};
-
-	template<auto MemberPointer, auto... MemberPointers>
-	requires
-		( std::is_member_object_pointer_v<decltype(MemberPointer)> ) &&
-		( std::is_member_object_pointer_v<decltype(MemberPointers)> && ...) &&
-		( std::same_as<
-			typename type_of_owning_object<decltype(MemberPointer)>::type,
-			typename type_of_owning_object<decltype(MemberPointers)>::type
-		> && ... )
-	struct serializer<serializable_members_list<MemberPointer, MemberPointers...>>
-	{
-		using class_type = typename type_of_owning_object<decltype(MemberPointer)>::type;
-		static constexpr std::tuple<decltype(MemberPointers)...> member_pointers = { MemberPointers... };
-
-		static bit_writer& serialize(bit_writer& out, const class_type& object )
-		{
-			// Validate that types are serializable
-			auto validate = []<class T>(std::in_place_type_t<T>)
-			{
-				static_assert(is_serializable_v<T>, "Type [T] is not serializable.");
-			};
-
-			validate(std::in_place_type<typename type_of_owning_object<decltype(MemberPointer)>::member_object_type>);
-			( validate(std::in_place_type<typename type_of_owning_object<decltype(MemberPointers)>::member_object_type>), ... );
-
-			( out | (object).*MemberPointer );
-			( (out | (object).*MemberPointers) | ...);
-			return out;
-		}
-
-		static bit_reader& deserialize(bit_reader& in, class_type& object)
-		{
-			// Validate that types are serializable
-			auto validate = []<class T>(std::in_place_type_t<T>)
-			{
-				static_assert(is_serializable_v<T>, "Type [T] is not serializable.");
-			};
-
-			validate(std::in_place_type<typename type_of_owning_object<decltype(MemberPointer)>::member_object_type>);
-			(validate(std::in_place_type<typename type_of_owning_object<decltype(MemberPointers)>::member_object_type>), ...);
-
-			(in | (object).*MemberPointer);
-			((in | (object).*MemberPointers) | ...);
-			return in;
-		}
-	};
-
-	template<class T>
-	struct serializer
-	{
-		static bit_writer& serialize(bit_writer& out, const T& v)
-		{
-			return out | v.x | v.y;
-		}
-
-		static bit_reader& deserialize(bit_reader& out, T& v)
-		{
-			return out | v.x | v.y;
-		}
-
-		// using v = serializable_members_list<&amogus::a, &amogus::b>;
-	};
-
-	
 }
 
 #endif
