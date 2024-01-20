@@ -14,6 +14,7 @@
 #include <span>
 #include <ranges>
 #include <vector>
+#include <format>
 #include <variant>
 #include <memory_resource>
 
@@ -783,8 +784,9 @@ namespace fox::serialize
 				{
 					if (size != std::size(value))
 					{
-						throw std::out_of_range("Trying to read ranges (" + std::to_string(size) + " elements) of a different size than the array (" +
-							std::to_string(std::size(value)) + " elements).");
+						throw std::out_of_range(std::format("Trying to read ranges ({} elements) of a different size than the array ({} elements).",
+							size, std::size(value))
+						);
 					}
 
 					// Memcpy array
