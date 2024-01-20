@@ -35,7 +35,7 @@ namespace fox::serialize
 			fox::serialize::bit_writer writer;
 			value_type a = test_trait<value_type>::construct();
 			writer | a;
-			fox::serialize::bit_reader reader(writer.data());
+			fox::serialize::bit_reader reader(std::from_range, writer.data());
 			value_type b;
 			reader | b;
 			if constexpr (std::equality_comparable<value_type> || !std::is_trivial_v<value_type>)
@@ -52,7 +52,7 @@ namespace fox::serialize
 			fox::serialize::bit_writer writer;
 			value_type a = test_trait<value_type>::construct();
 			writer | a;
-			fox::serialize::bit_reader reader(writer.data());
+			fox::serialize::bit_reader reader(std::from_range, writer.data());
 			std::vector<std::ranges::range_value_t<value_type>> b;
 			reader | b;
 			EXPECT_TRUE(std::ranges::equal(a, b));

@@ -16,6 +16,9 @@
 #include <vector>
 #include <format>
 #include <variant>
+#include <memory_resource>
+
+#include "serialize.hpp"
 
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
 #include <fox/reflexpr.hpp>
@@ -29,7 +32,32 @@ namespace fox::serialize
 
 	class bit_writer
 	{
-		std::vector<std::byte> buffer_;
+		std::pmr::vector<std::byte> buffer_;
+
+	public:
+		bit_writer() = default;
+
+		bit_writer(std::pmr::memory_resource* mr)
+			: buffer_(std::pmr::polymorphic_allocator{mr}) {}
+
+		bit_writer(const bit_writer&) = default;
+		bit_writer(bit_writer&&) noexcept = default;
+		bit_writer& operator=(const bit_writer&) = default;
+		bit_writer& operator=(bit_writer&&) noexcept = default;
+		~bit_writer() noexcept = default;
+
+	public:
+		auto get_allocator() const noexcept -> decltype(buffer_)::allocator_type
+		{
+			return buffer_.get_allocator();
+		}
+
+	public:
+		void clear()
+		{
+			buffer_.clear();
+		}
+
 	public:
 		[[nodiscard]] void* write_bytes(std::size_t num_bytes)
 		{
@@ -58,18 +86,41 @@ namespace fox::serialize
 
 	class bit_reader
 	{
-		std::vector<std::byte> buffer_;
+		std::pmr::vector<std::byte> buffer_;
 		std::size_t offset_{};
 	public:
+		bit_reader() = default;
+		bit_reader(std::pmr::memory_resource* mr)
+			: buffer_(std::pmr::polymorphic_allocator{ mr }), offset_(static_cast<std::size_t>(0)) {}
+
+		bit_reader(const bit_reader& other) : buffer_(other.buffer_), offset_(other.offset_) {}
+		bit_reader(bit_reader&& other) noexcept
+			: buffer_(std::exchange(other.buffer_, {})), offset_(std::exchange(other.offset_, {}))
+		{}
+
+		bit_reader& operator=(const bit_reader& other)
+		{
+			buffer_ = other.buffer_;
+			offset_ = other.offset_;
+			return *this;
+		}
+
+		bit_reader& operator=(bit_reader&& other) noexcept
+		{
+			buffer_ = std::exchange(other.buffer_, {});
+			offset_ = std::exchange(other.offset_, {});
+			return *this;
+		}
+
 		template<std::ranges::range Range>
-		bit_reader(Range&& range)
+		bit_reader(std::from_range_t, Range && range)
 			requires std::is_trivial_v<std::ranges::range_value_t<Range>>
 		{
 			using value_type = std::ranges::range_value_t<Range>;
 			if constexpr (std::ranges::contiguous_range<Range>)
 			{
 				auto span = std::as_bytes(std::span(range));
-				buffer_ = span | std::ranges::to<std::vector<std::byte>>();
+				buffer_ = span | std::ranges::to<std::pmr::vector<std::byte>>();
 			}
 			else
 			{
@@ -85,8 +136,23 @@ namespace fox::serialize
 		}
 
 	public:
+		auto get_allocator() const noexcept -> decltype(buffer_)::allocator_type
+		{
+			return buffer_.get_allocator();
+		}
+
+	public:
+		void clear()
+		{
+			buffer_.clear();
+			offset_ = {};
+		}
+	public:
 		[[nodiscard]] const void* read_bytes(std::size_t num_bytes)
 		{
+			if (offset_ + num_bytes > std::size(buffer_))
+				throw std::out_of_range("Trying to serialize data that is out of range.");
+
 			const void* ptr = static_cast<const void*>(std::data(buffer_) + offset_);
 			offset_ += num_bytes;
 			return ptr;
@@ -95,6 +161,9 @@ namespace fox::serialize
 		template<std::size_t NumBytes>
 		[[nodiscard]] const void* read_bytes()
 		{
+			if (offset_ + NumBytes > std::size(buffer_))
+				throw std::out_of_range("Trying to serialize data that is out of range.");
+
 			const void* ptr = static_cast<const void*>(std::data(buffer_) + offset_);
 			offset_ += NumBytes;
 			return ptr;
@@ -292,6 +361,33 @@ namespace fox::serialize
 		return lhs;
 	}
 
+	template<serializable T>
+	void serialize(bit_writer& lhs, const T& rhs)
+	{
+		::fox::serialize::details::do_serialize<T>(lhs, rhs);
+	}
+
+	template<serializable T>
+	void deserialize(bit_reader& lhs, const T& rhs)
+	{
+		::fox::serialize::details::do_deserialize<T>(lhs, rhs);
+	}
+
+	template<serializable T>
+	T deserialize(bit_reader& lhs)
+	{
+		if constexpr(::fox::serialize::details::custom_deserializable_construct<T>)
+		{
+			return T(from_bit_reader, lhs);
+		}
+		else
+		{
+			static_assert(std::is_default_constructible_v<T>, "[T] is not default constructible.");
+			T v;
+			::fox::serialize::details::do_deserialize<T>(lhs, v);
+			return v;
+		}
+	}
 
 #pragma endregion traits
 

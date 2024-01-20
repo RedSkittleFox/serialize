@@ -1,23 +1,19 @@
-﻿#include <string_view>
-#include <array>
-#include <fox/serialize.hpp>
+void sample_aggregate_types();
+void sample_containers();
+void sample_custom_0();
+void sample_custom_1();
+void sample_custom_2();
+void sample_custom_3();
+void sample_trivial_types();
 
 int main()
 {
-	using pair = std::pair<const std::string, int>;
-
-	fox::serialize::bit_writer writer;
-	int a = 5;
-	std::string sugoma = "sus\n";
-	writer | a | sugoma;
-	fox::serialize::bit_reader reader(writer.data());
-	int b;
-	std::string out;
-	reader | b | out;
-
-	pair p{};
-	// fox::serialize::details::builtin_serialize_traits<pair>::deserialize(reader, p);
-
-	assert(a == b && sugoma == out);
+	sample_aggregate_types();
+	sample_containers();
+	sample_custom_0();
+	sample_custom_1();
+	sample_custom_2();
+	sample_custom_3();
+	sample_trivial_types();
 	return 0;
 }

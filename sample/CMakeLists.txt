@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.21)
 
 set(sources 
     "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_aggregate_types.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_containers.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_0.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_1.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_2.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_3.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_trivial_types.cpp"
 )
 
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${sources})
@@ -20,7 +27,6 @@ if(MSVC)
 	serialize-demo
         PRIVATE /WX # all warnings as errors 
         PRIVATE /MP # multi-processor compilation
-        # PRIVATE /FR
     )
 endif()
 
