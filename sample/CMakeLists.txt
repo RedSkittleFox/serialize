@@ -8,6 +8,7 @@ set(sources
     "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_1.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_2.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_3.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/sample_custom_4.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/sample_trivial_types.cpp"
 )
 

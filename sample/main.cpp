@@ -4,6 +4,7 @@ void sample_custom_0();
 void sample_custom_1();
 void sample_custom_2();
 void sample_custom_3();
+void sample_custom_4();
 void sample_trivial_types();
 
 int main()
@@ -14,6 +15,7 @@ int main()
 	sample_custom_1();
 	sample_custom_2();
 	sample_custom_3();
+	sample_custom_4();
 	sample_trivial_types();
 	return 0;
 }

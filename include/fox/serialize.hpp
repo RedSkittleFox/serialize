@@ -18,8 +18,6 @@
 #include <variant>
 #include <memory_resource>
 
-#include "serialize.hpp"
-
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
 #include <fox/reflexpr.hpp>
 #endif
@@ -30,35 +28,78 @@ namespace fox::serialize
 	class bit_writer;
 	class bit_reader;
 
+	/**
+	 * \brief Implements raw byte buffer that can be written to.
+	 */
 	class bit_writer
 	{
 		std::pmr::vector<std::byte> buffer_;
 
 	public:
+		/**
+		 * \brief Default constructor. Constructs empty bit_writer.
+		 */
 		bit_writer() = default;
 
+		/**
+		 * \brief Constructs an empty bit_writer with the given memory resource.
+		 * \param mr Memory resource to construct bit_writer with.
+		 */
 		bit_writer(std::pmr::memory_resource* mr)
 			: buffer_(std::pmr::polymorphic_allocator{mr}) {}
 
+		/**
+		 * \brief Copy constructor. Constructs bit_writer with the copy of the contents of the other.
+		 */
 		bit_writer(const bit_writer&) = default;
+
+		/**
+		 * \brief Move constructor. Constructs bit_writer with the contents of other using move semantics.
+		 */
 		bit_writer(bit_writer&&) noexcept = default;
+
+		/**
+		 * \brief Copy assignment operator. Replaces the contents with a copy of the contents of other.
+		 * \return *this
+		 */
 		bit_writer& operator=(const bit_writer&) = default;
+
+		/**
+		 * \brief Move assignment operator. Replaces the contents with those of other using move semantics.
+		 * \return *this
+		 */
 		bit_writer& operator=(bit_writer&&) noexcept = default;
+
+		/**
+		 * \brief Destructor of the bit_writer.
+		 */
 		~bit_writer() noexcept = default;
 
 	public:
+		/**
+		 * \brief Returns the allocator associated with the bit_writer.
+		 * \return The associated allocator.
+		 */
 		auto get_allocator() const noexcept -> decltype(buffer_)::allocator_type
 		{
 			return buffer_.get_allocator();
 		}
 
 	public:
+		/**
+		 * \brief Erases previously serialized data. Resets bit_writer.
+		 */
 		void clear()
 		{
 			buffer_.clear();
 		}
 
 	public:
+		/**
+		 * \brief Allocates memory to write num_bytes in the bit_writer.
+		 * \param num_bytes Number of bytes requested to be written.
+		 * \return Pointer to memory, to populate with serialized data. Returned pointer is invalidated on the next call to write_bytes.
+		 */
 		[[nodiscard]] void* write_bytes(std::size_t num_bytes)
 		{
 			const std::size_t offset = std::size(buffer_);
@@ -66,6 +107,11 @@ namespace fox::serialize
 			return static_cast<void*>(std::data(buffer_) + offset);
 		}
 
+		/**
+		 * \brief Allocates memory to write NumBytes in the bit_writer.
+		 * \tparam NumBytes Number of bytes requested to be written.
+		 * \return Pointer to memory, to populate with serialized data. Returned pointer is invalidated on the next call to write_bytes.
+		 */
 		template<std::size_t NumBytes>
 		[[nodiscard]] void* write_bytes()
 		{
@@ -75,29 +121,67 @@ namespace fox::serialize
 		}
 
 	public:
+		/**
+		 * \brief Direct access to the underlying contiguous storage.
+		 * \return Span of bytes to serialized data.
+		 */
 		[[nodiscard]] std::span<const std::byte> data() const noexcept
 		{
 			return buffer_;
 		}
 	};
 
+	/**
+	 * \brief Tag type used for the constructor disambiguation.
+	 * Refer to samples/sample_custom_3.cpp
+	 */
 	struct from_bit_reader_t {};
+
+	/**
+	 * \brief Tag used for the constructor disambiguation.
+	 * Refer to samples/sample_custom_3.cpp
+	 */
 	constexpr from_bit_reader_t from_bit_reader;
 
+	/**
+	 * \brief Implements raw byte buffer that can be read from.
+	 */
 	class bit_reader
 	{
 		std::pmr::vector<std::byte> buffer_;
 		std::size_t offset_{};
 	public:
+		/**
+		 * \brief Default constructor. Constructs empty bit_reader.
+		 */
 		bit_reader() = default;
+
+		/**
+		 * \brief Constructs an empty bit_reader with the given memory resource.
+		 * \param mr Memory resource to construct bit_reader with.
+		 */
 		bit_reader(std::pmr::memory_resource* mr)
 			: buffer_(std::pmr::polymorphic_allocator{ mr }), offset_(static_cast<std::size_t>(0)) {}
 
+		/**
+		 * \brief Copy constructor. Constructs bit_reader with the copy of the contents of the other.
+		 * \param other bit_reader to copy contents from
+		 */
 		bit_reader(const bit_reader& other) : buffer_(other.buffer_), offset_(other.offset_) {}
+
+		/**
+		 * \brief Move constructor. Constructs bit_reader with the contents of other using move semantics.
+		 * \param other bit_reader to move contents from
+		 */
 		bit_reader(bit_reader&& other) noexcept
 			: buffer_(std::exchange(other.buffer_, {})), offset_(std::exchange(other.offset_, {}))
 		{}
 
+		/**
+		 * \brief Copy assignment operator. Replaces the contents with a copy of the contents of other.
+		 * \param other bit_reader to copy contents from
+		 * \return *this
+		 */
 		bit_reader& operator=(const bit_reader& other)
 		{
 			buffer_ = other.buffer_;
@@ -105,6 +189,11 @@ namespace fox::serialize
 			return *this;
 		}
 
+		/**
+		 * \brief Move assignment operator. Replaces the contents with those of other using move semantics.
+		 * \param other bit_reader to move contents from
+		 * \return *this
+		 */
 		bit_reader& operator=(bit_reader&& other) noexcept
 		{
 			buffer_ = std::exchange(other.buffer_, {});
@@ -112,6 +201,11 @@ namespace fox::serialize
 			return *this;
 		}
 
+		/**
+		 * \brief Constructs bit_reader with the contents of the range.
+		 * \tparam Range Range of trivial types convertible to the range of bytes.
+		 * \param range Range of trivial types convertible to the range of bytes.
+		 */
 		template<std::ranges::range Range>
 		bit_reader(std::from_range_t, Range && range)
 			requires std::is_trivial_v<std::ranges::range_value_t<Range>>
@@ -135,19 +229,36 @@ namespace fox::serialize
 			}
 		}
 
+		/**
+		 * \brief Destructor of the bit_reader.
+		 */
+		~bit_reader() noexcept = default;
+
 	public:
+		/**
+		 * \brief Returns the allocator associated with the bit_writer.
+		 * \return The associated allocator.
+		 */
 		auto get_allocator() const noexcept -> decltype(buffer_)::allocator_type
 		{
 			return buffer_.get_allocator();
 		}
 
 	public:
+		/**
+		 * \brief Erases previously serialized data. Resets bit_writer.
+		 */
 		void clear()
 		{
 			buffer_.clear();
 			offset_ = {};
 		}
 	public:
+		/**
+		 * \brief Acquires pointer to the data that is to be deserialized.
+		 * \param num_bytes Number of bytes requested to be read.
+		 * \return Pointer to memory, that contains serialized object.
+		 */
 		[[nodiscard]] const void* read_bytes(std::size_t num_bytes)
 		{
 			if (offset_ + num_bytes > std::size(buffer_))
@@ -158,6 +269,11 @@ namespace fox::serialize
 			return ptr;
 		}
 
+		/**
+		 * \brief Acquires pointer to the data that is to be deserialized.
+		 * \tparam NumBytes Number of bytes requested to be read.
+		 * \return Pointer to memory, that contains serialized object.
+		 */
 		template<std::size_t NumBytes>
 		[[nodiscard]] const void* read_bytes()
 		{
@@ -266,21 +382,45 @@ namespace fox::serialize
 			custom_deserializable_construct<T>;
 	}
 
+	/**
+	 * \brief Check, if type is serializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	concept serializable = ::fox::serialize::details::builtin_serializable<T> || ::fox::serialize::details::custom_serializable<T>;
 
+	/**
+	 * \brief Check, if type is deserializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	concept deserializable = ::fox::serialize::details::builtin_deserializable<T> || ::fox::serialize::details::custom_deserializable<T>;
 
+	/**
+	 * \brief Check, if type is serializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	static constexpr bool is_serializable_v = serializable<T>;
 
+	/**
+	 * \brief Check, if type is serializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	struct is_serializable : std::bool_constant<is_serializable_v<T>> {};
 
+	/**
+	 * \brief Check, if type is deserializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	static constexpr bool is_deserializable_v = deserializable<T>;
 
+	/**
+	 * \brief Check, if type is deserializable.
+	 * \tparam T a type to check
+	 */
 	template<class T>
 	struct is_deserializable : std::bool_constant<is_deserializable_v<T>> {};
 
@@ -347,6 +487,13 @@ namespace fox::serialize
 		}
 	}
 
+	/**
+	 * \brief Serializes object into bit_writer
+	 * \tparam T Type of the object to serialize
+	 * \param lhs bit_writer
+	 * \param rhs object to serialize
+	 * \return lhs
+	 */
 	template<serializable T>
 	bit_writer& operator|(bit_writer& lhs, const T& rhs)
 	{
@@ -354,6 +501,13 @@ namespace fox::serialize
 		return lhs;
 	}
 
+	/**
+	 * \brief Deserializes object from bit_reader
+	 * \tparam T Type of the object to deserialize
+	 * \param lhs bit_reader
+	 * \param rhs object to deserialize
+	 * \return lhs
+	 */
 	template<deserializable T>
 	bit_reader& operator|(bit_reader& lhs, T& rhs)
 	{
@@ -361,20 +515,38 @@ namespace fox::serialize
 		return lhs;
 	}
 
+	/**
+	 * \brief Serializes object into bit_writer
+	 * \tparam T Type of the object to serialize
+	 * \param lhs bit_writer
+	 * \param rhs object to serialize
+	 */
 	template<serializable T>
 	void serialize(bit_writer& lhs, const T& rhs)
 	{
 		::fox::serialize::details::do_serialize<T>(lhs, rhs);
 	}
 
+	/**
+	 * \brief Deserializes object from bit_reader
+	 * \tparam T Type of the object to deserialize
+	 * \param lhs bit_reader
+	 * \param rhs object to deserialize
+	 */
 	template<serializable T>
 	void deserialize(bit_reader& lhs, const T& rhs)
 	{
 		::fox::serialize::details::do_deserialize<T>(lhs, rhs);
 	}
 
+	/**
+	 * \brief Deserializes object from bit_reader
+	 * \tparam T  Type of the object to deserialize
+	 * \param lhs bit_reader
+	 * \return deserialized object
+	 */
 	template<serializable T>
-	T deserialize(bit_reader& lhs)
+	[[nodiscard]] T deserialize(bit_reader& lhs)
 	{
 		if constexpr(::fox::serialize::details::custom_deserializable_construct<T>)
 		{
@@ -822,8 +994,13 @@ namespace fox::serialize
 		};
 	}
 
+	/**
+	 * \brief Helper class providing serialization trait from the members. Refer samples/sample_custom_4.cpp
+	 * \tparam T Object type
+	 * \tparam Members Member list
+	 */
 	template<class T, auto... Members> requires
-	std::conjunction_v<::fox::serialize::details::is_member_object_pointer_of<T, decltype(Members)>...>
+		std::conjunction_v<::fox::serialize::details::is_member_object_pointer_of<T, decltype(Members)>...>
 	struct serialize_from_members
 	{
 		static void serialize(bit_writer& writer, const T& v)
