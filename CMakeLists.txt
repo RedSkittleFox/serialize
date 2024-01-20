@@ -11,6 +11,30 @@ if (PROJECT_IS_TOP_LEVEL)
     
     set(CMAKE_CXX_STANDARD 23)
     set(CMAKE_CXX_STANDARD_REQUIRED)
+
+    option(
+    	FOX_SERIALIZE_BUILD_SAMPLES 
+        "If samples are built."
+    	ON
+    )
+
+    option(
+	    FOX_SERIALIZE_BUILD_TESTS
+        "If unit tests are built"
+	    ON
+    )
+else()
+    option(
+    	FOX_SERIALIZE_BUILD_SAMPLES 
+        "If samples are built."
+    	OFF
+    )
+
+    option(
+	    FOX_SERIALIZE_BUILD_TESTS
+        "If unit tests are built"
+	    OFF
+    )
 endif()
     
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
@@ -23,18 +47,6 @@ if(NOT ${IPO_SUPPORTED})
 else()
     message(STATUS "IPO / LTO supported.")
 endif()
-
-option(
-	FOX_SERIALIZE_BUILD_SAMPLES 
-    "If samples are built."
-	ON
-)
-
-option(
-	FOX_SERIALIZE_BUILD_TESTS
-    "If unit tests are built"
-	ON
-)
 
 option(
 	FOX_SERIALIZE_INCLUDE_REFLEXPR

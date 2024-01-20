@@ -42,5 +42,4 @@ void sample_custom_0()
 
 	std::cout << std::format("=== Custom Variant 0 Sample ===\nA = {}\nB = {}\n",
 		*a, *b);
-
 }
