@@ -33,11 +33,8 @@ int b_out;
 reader | a_out | b_out;
 ```
 
-## Aggregate serialization
-Aggregate type serialization is handled via 
-
 ## Aggregates
-Aggregate types are supported [fox::reflexpr](https://github.com/RedSkittleFox/reflexpr/tree/main) reflections library if available. Library can be disabled by setting `FOX_SERIALIZE_INCLUDE_REFLEXPR` CMAKE flag to OFF.
+Aggregate types are supported through [fox::reflexpr](https://github.com/RedSkittleFox/reflexpr/tree/main) reflections library if available. Library can be disabled by setting `FOX_SERIALIZE_INCLUDE_REFLEXPR` CMAKE flag to OFF.
 
 ```cpp
 #include <fox/serialize.hpp>
