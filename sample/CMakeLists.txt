@@ -19,10 +19,6 @@ add_executable(
     ${sources}
 )
 
-if(${IPO_SUPPORTED})
-    set_target_properties(serialize-demo PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
-endif()
-
 if(MSVC)
     target_compile_options(
 	serialize-demo

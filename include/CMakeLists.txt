@@ -11,10 +11,6 @@ add_library(
     ${sources}
 )
 
-if(${IPO_SUPPORTED})
-    set_target_properties(serialize PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
-endif()
-
 if(FOX_SERIALIZE_INCLUDE_REFLEXPR)
     include(FetchContent)
 
