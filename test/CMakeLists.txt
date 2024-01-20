@@ -30,7 +30,7 @@ add_executable(
 
 if(MSVC)
 	target_compile_options(
-	        serialize-test
+	    serialize-test
 		PRIVATE /W4 
 		PRIVATE /MP 
 		PRIVATE /arch:AVX2
