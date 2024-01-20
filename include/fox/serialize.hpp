@@ -24,6 +24,7 @@
 #include <vector>
 #include <format>
 #include <variant>
+#include <cstring>
 #include <memory_resource>
 
 #ifdef FOX_SERIALIZE_HAS_REFLEXPR
