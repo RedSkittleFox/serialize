@@ -1,3 +1,11 @@
+/// This header is distributed under MIT license.
+///
+/// Author:			Marcin Poloczek (aka. RedSkittleFox)
+///	Contact:		RedSkittleFox@gmail.com
+/// Copyright:		Marcin Poloczek
+/// License:		MIT
+/// Version:		1.0.0
+///
 #ifndef FOX_SERIALIZE_H_
 #define FOX_SERIALIZE_H_
 #pragma once
