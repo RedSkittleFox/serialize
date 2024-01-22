@@ -31,6 +31,32 @@
 #include <fox/reflexpr.hpp>
 #endif
 
+#ifdef FOX_SERIALIZE_INLINE
+#pragma message "FOX_SERIALIZE_INLINE macro is internally used by redskittlefox/serialize library"
+#undef FOX_SERIALIZE_INLINE
+#endif
+
+#ifdef FOX_SERIALIZE_CONSTEXPR_LAMBDA
+#pragma message "FOX_SERIALIZE_CONSTEXPR_LAMBDA macro is internally used by redskittlefox/serialize library"
+#undef FOX_SERIALIZE_CONSTEXPR_LAMBDA
+#endif
+
+#ifdef __clang__
+#define FOX_SERIALIZE_INLINE __attribute__((always_inline))
+#define FOX_SERIALIZE_CONSTEXPR_LAMBDA __attribute__((always_inline)) constexpr
+#endif
+
+#if __GNUC__
+#define FOX_SERIALIZE_INLINE __attribute__((always_inline))
+#define FOX_SERIALIZE_CONSTEXPR_LAMBDA constexpr
+#endif
+
+#if defined(_MSC_VER) && !defined(__clang__)
+#define FOX_SERIALIZE_INLINE __forceinline
+#define FOX_SERIALIZE_CONSTEXPR_LAMBDA constexpr 
+#endif
+
+
 namespace fox::serialize
 {
 #pragma region streams
@@ -109,7 +135,7 @@ namespace fox::serialize
 		 * \param num_bytes Number of bytes requested to be written.
 		 * \return Pointer to memory, to populate with serialized data. Returned pointer is invalidated on the next call to write_bytes.
 		 */
-		[[nodiscard]] void* write_bytes(std::size_t num_bytes)
+		[[nodiscard]] FOX_SERIALIZE_INLINE void* write_bytes(std::size_t num_bytes)
 		{
 			const std::size_t offset = std::size(buffer_);
 			buffer_.resize(offset + num_bytes);
@@ -122,7 +148,7 @@ namespace fox::serialize
 		 * \return Pointer to memory, to populate with serialized data. Returned pointer is invalidated on the next call to write_bytes.
 		 */
 		template<std::size_t NumBytes>
-		[[nodiscard]] void* write_bytes()
+		[[nodiscard]] FOX_SERIALIZE_INLINE void* write_bytes()
 		{
 			const std::size_t offset = std::size(buffer_);
 			buffer_.resize(offset + NumBytes);
@@ -268,7 +294,7 @@ namespace fox::serialize
 		 * \param num_bytes Number of bytes requested to be read.
 		 * \return Pointer to memory, that contains serialized object.
 		 */
-		[[nodiscard]] const void* read_bytes(std::size_t num_bytes)
+		[[nodiscard]] FOX_SERIALIZE_INLINE const void* read_bytes(std::size_t num_bytes)
 		{
 			if (offset_ + num_bytes > std::size(buffer_))
 				throw std::out_of_range("Trying to serialize data that is out of range.");
@@ -284,7 +310,7 @@ namespace fox::serialize
 		 * \return Pointer to memory, that contains serialized object.
 		 */
 		template<std::size_t NumBytes>
-		[[nodiscard]] const void* read_bytes()
+		[[nodiscard]] FOX_SERIALIZE_INLINE const void* read_bytes()
 		{
 			if (offset_ + NumBytes > std::size(buffer_))
 				throw std::out_of_range("Trying to serialize data that is out of range.");
@@ -436,7 +462,7 @@ namespace fox::serialize
 	namespace details
 	{
 		template<::fox::serialize::serializable T>
-		void do_serialize(bit_writer& lhs, const T& rhs)
+		FOX_SERIALIZE_INLINE void do_serialize(bit_writer& lhs, const T& rhs)
 		{
 			if constexpr (::fox::serialize::details::custom_serializable<T>)
 			{
@@ -464,7 +490,7 @@ namespace fox::serialize
 		}
 
 		template<::fox::serialize::deserializable T>
-		void do_deserialize(bit_reader& lhs, T& rhs)
+		FOX_SERIALIZE_INLINE void do_deserialize(bit_reader& lhs, T& rhs)
 		{
 			if constexpr (::fox::serialize::details::custom_deserializable<T>)
 			{
@@ -504,7 +530,7 @@ namespace fox::serialize
 	 * \return lhs
 	 */
 	template<serializable T>
-	bit_writer& operator|(bit_writer& lhs, const T& rhs)
+	FOX_SERIALIZE_INLINE bit_writer& operator|(bit_writer& lhs, const T& rhs)
 	{
 		::fox::serialize::details::do_serialize<T>(lhs, rhs);
 		return lhs;
@@ -518,7 +544,7 @@ namespace fox::serialize
 	 * \return lhs
 	 */
 	template<deserializable T>
-	bit_reader& operator|(bit_reader& lhs, T& rhs)
+	FOX_SERIALIZE_INLINE bit_reader& operator|(bit_reader& lhs, T& rhs)
 	{
 		::fox::serialize::details::do_deserialize<T>(lhs, rhs);
 		return lhs;
@@ -531,7 +557,7 @@ namespace fox::serialize
 	 * \param rhs object to serialize
 	 */
 	template<serializable T>
-	void serialize(bit_writer& lhs, const T& rhs)
+	FOX_SERIALIZE_INLINE void serialize(bit_writer& lhs, const T& rhs)
 	{
 		::fox::serialize::details::do_serialize<T>(lhs, rhs);
 	}
@@ -543,7 +569,7 @@ namespace fox::serialize
 	 * \param rhs object to deserialize
 	 */
 	template<serializable T>
-	void deserialize(bit_reader& lhs, const T& rhs)
+	FOX_SERIALIZE_INLINE void deserialize(bit_reader& lhs, const T& rhs)
 	{
 		::fox::serialize::details::do_deserialize<T>(lhs, rhs);
 	}
@@ -555,7 +581,7 @@ namespace fox::serialize
 	 * \return deserialized object
 	 */
 	template<serializable T>
-	[[nodiscard]] T deserialize(bit_reader& lhs)
+	[[nodiscard]] FOX_SERIALIZE_INLINE T deserialize(bit_reader& lhs)
 	{
 		if constexpr(::fox::serialize::details::custom_deserializable_construct<T>)
 		{
@@ -582,7 +608,7 @@ namespace fox::serialize
 		template<class T> requires builtin_serializable<T>
 		struct builtin_serialize_traits<const T>
 		{
-			static void serialize(bit_writer& writer, const T& value)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& value)
 			{
 				do_serialize<T>(writer, value);
 			}
@@ -594,12 +620,12 @@ namespace fox::serialize
 		template<class T> requires builtin_serializable<T>
 		struct builtin_serialize_traits<T&>
 		{
-			static void serialize(bit_writer& writer, const T& value)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& value)
 			{
 				do_serialize<T>(writer, value);
 			}
 
-			static void deserialize(bit_reader& reader, T& value)
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& value)
 			{
 				do_deserialize<T>(reader, value);
 			}
@@ -611,13 +637,13 @@ namespace fox::serialize
 		template<class T> requires ( !std::ranges::range<T> && std::is_trivially_copyable_v<T> )
 		struct builtin_serialize_traits<T>
 		{
-			static void serialize(bit_writer& writer, const T& value)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& value)
 			{
 				auto ptr = writer.write_bytes<sizeof(T)>();
 				*static_cast<T*>(ptr) = value;
 			}
 
-			static void deserialize(bit_reader& reader, T& value)
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& value)
 			{
 				auto ptr = reader.read_bytes<sizeof(T)>();
 				value = *static_cast<const T*>(ptr);
@@ -732,7 +758,7 @@ namespace fox::serialize
 		template<std::ranges::range T>
 		struct builtin_serialize_traits<T>
 		{
-			static void serialize(bit_writer& writer, const T& range) requires
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& range) requires
 				serializable<std::ranges::range_value_t<T>>
 			{
 				using value_type = std::ranges::range_value_t<T>;
@@ -769,7 +795,7 @@ namespace fox::serialize
 						::fox::serialize::details::is_ranges_to_convertible<T, std::span<const std::ranges::range_value_t<T>>> &&
 					(std::is_default_constructible_v<std::ranges::range_value_t<T>> || details::custom_deserializable_construct<T>)));
 
-			static void deserialize(bit_reader& reader, T& value) requires is_deserializable
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& value) requires is_deserializable
 				
 			{
 				using value_type = typename tuple_like_remove_const<std::ranges::range_value_t<T>>::type;
@@ -815,7 +841,7 @@ namespace fox::serialize
 				else // Iterate over elements, serialize them and then convert them into the range
 				{
 					value = std::views::iota(static_cast<std::size_t>(0), size)
-						| std::views::transform([&](auto) -> value_type
+						| std::views::transform([&](auto) FOX_SERIALIZE_CONSTEXPR_LAMBDA -> value_type
 						{
 							if constexpr(custom_deserializable_construct<value_type>)
 							{
@@ -849,19 +875,19 @@ namespace fox::serialize
 			template<std::size_t Idx, class U>
 			struct tuple_element_deserializable : is_deserializable<std::tuple_element_t<Idx, U>> {};
 
-			static void serialize(bit_writer& writer, const T& tuple)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& tuple)
 				requires details::indexed_conjunction<tuple_element_serializable, T, std::tuple_size_v<T>>::value
 			{
-				[&] <std::size_t... Idx>(std::index_sequence<Idx...>)
+				[&] <std::size_t... Idx>(std::index_sequence<Idx...>) FOX_SERIALIZE_CONSTEXPR_LAMBDA
 				{
 					(::fox::serialize::details::do_serialize<std::tuple_element_t<Idx, T>>(writer, std::get<Idx>(tuple)), ...);
 				}(std::make_index_sequence<std::tuple_size_v<T>>{});
 			}
 
-			static void deserialize(bit_reader& reader, T& tuple) requires
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& tuple) requires
 				::fox::serialize::details::indexed_conjunction<tuple_element_deserializable, T, std::tuple_size_v<T>>::value
 			{
-				[&] <std::size_t... Idx>(std::index_sequence<Idx...>)
+				[&] <std::size_t... Idx>(std::index_sequence<Idx...>) FOX_SERIALIZE_CONSTEXPR_LAMBDA
 				{
 					(::fox::serialize::details::do_deserialize<std::tuple_element_t<Idx, T>>(reader, std::get<Idx>(tuple)), ...);
 				}(std::make_index_sequence<std::tuple_size_v<T>>{});
@@ -875,14 +901,14 @@ namespace fox::serialize
 			requires ( !std::ranges::range<T> && !std::is_trivially_copyable_v<T> && !::fox::serialize::details::tuple_like<T> )
 		struct builtin_serialize_traits<T>
 		{
-			static void serialize(bit_writer& writer, const T& aggregate)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& aggregate)
 				requires serializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
 			{
 				auto tie = fox::reflexpr::tie(aggregate);
 				::fox::serialize::details::do_serialize<decltype(tie)>(writer, tie);
 			}
 
-			static void deserialize(bit_reader& reader, T& aggregate)
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& aggregate)
 				requires deserializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
 			{
 				auto tie = fox::reflexpr::tie(aggregate);
@@ -897,7 +923,7 @@ namespace fox::serialize
 		template<class... Args>
 		struct builtin_serialize_traits<std::variant<Args...>>
 		{
-			static void serialize(bit_writer& writer, const std::variant<Args...>& variant)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const std::variant<Args...>& variant)
 				requires std::conjunction_v<is_serializable<Args>...>
 			{
 				const std::size_t idx = variant.index();
@@ -908,7 +934,7 @@ namespace fox::serialize
 				}
 			}
 
-			static void deserialize(bit_reader& reader, std::variant<Args...>& variant)
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, std::variant<Args...>& variant)
 				requires std::conjunction_v<is_deserializable<Args>...>
 			{
 				std::size_t idx;
@@ -918,9 +944,9 @@ namespace fox::serialize
 					if (idx >= std::variant_size_v<std::variant<Args...>>)
 						throw std::invalid_argument("Invalid variant index."); // TODO: Custom exception type
 
-					[&]<std::size_t... Is>(std::index_sequence<Is...>)
+					[&]<std::size_t... Is>(std::index_sequence<Is...>) FOX_SERIALIZE_CONSTEXPR_LAMBDA
 					{
-						([&]<std::size_t I>(std::in_place_index_t<I>)
+						([&]<std::size_t I>(std::in_place_index_t<I>) FOX_SERIALIZE_CONSTEXPR_LAMBDA
 						{
 							if(I == idx)
 							{
@@ -950,7 +976,7 @@ namespace fox::serialize
 		template<class T>
 		struct builtin_serialize_traits<std::optional<T>>
 		{
-			static void serialize(bit_writer& writer, const std::optional<T>& optional)
+			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const std::optional<T>& optional)
 				requires is_serializable_v<T>
 			{
 				writer | optional.has_value();
@@ -960,7 +986,7 @@ namespace fox::serialize
 				}
 			}
 
-			static void deserialize(bit_reader& reader, std::optional<T>& optional)
+			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, std::optional<T>& optional)
 				requires is_deserializable_v<T>
 			{
 				bool has_value = false;
@@ -1012,13 +1038,13 @@ namespace fox::serialize
 		std::conjunction_v<::fox::serialize::details::is_member_object_pointer_of<T, decltype(Members)>...>
 	struct serialize_from_members
 	{
-		static void serialize(bit_writer& writer, const T& v)
+		FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& v)
 			requires std::conjunction_v<::fox::serialize::is_serializable<typename ::fox::serialize::details::remove_member_pointer<decltype(Members)>::type>...>
 		{
 			((writer | (v.*Members)), ...);
 		}
 
-		static void deserialize(bit_reader& reader, T& v)
+		FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& v)
 			requires std::conjunction_v<::fox::serialize::is_deserializable<typename ::fox::serialize::details::remove_member_pointer<decltype(Members)>::type>...>
 		{
 			((reader | (v.*Members)), ...);
