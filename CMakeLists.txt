@@ -23,6 +23,12 @@ if (PROJECT_IS_TOP_LEVEL)
         "If unit tests are built"
 	    ON
     )
+
+    option(
+	    FOX_SERIALIZE_BUILD_BENCHMARKS
+        "If benchmarks are built"
+	    ON
+    )
 else()
     option(
     	FOX_SERIALIZE_BUILD_SAMPLES 
@@ -33,6 +39,12 @@ else()
     option(
 	    FOX_SERIALIZE_BUILD_TESTS
         "If unit tests are built"
+	    OFF
+    )
+
+    option(
+	    FOX_SERIALIZE_BUILD_BENCHMARKS
+        "If benchmarks are built"
 	    OFF
     )
 endif()
@@ -64,4 +76,8 @@ endif()
 
 if (FOX_SERIALIZE_BUILD_TESTS)
 	add_subdirectory("test")
+endif()
+
+if (FOX_SERIALIZE_BUILD_BENCHMARKS)
+    add_subdirectory("benchmark")
 endif()

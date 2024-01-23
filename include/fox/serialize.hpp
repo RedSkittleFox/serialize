@@ -904,15 +904,19 @@ namespace fox::serialize
 			FOX_SERIALIZE_INLINE static void serialize(bit_writer& writer, const T& aggregate)
 				requires serializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
 			{
-				auto tie = fox::reflexpr::tie(aggregate);
-				::fox::serialize::details::do_serialize<decltype(tie)>(writer, tie);
+				::fox::reflexpr::for_each(aggregate, [&]<class U>(const U & member) -> void
+				{
+					::fox::serialize::details::do_serialize<U>(writer, member);
+				});
 			}
 
 			FOX_SERIALIZE_INLINE static void deserialize(bit_reader& reader, T& aggregate)
 				requires deserializable<decltype(fox::reflexpr::tie(std::declval<T&>()))>
 			{
-				auto tie = fox::reflexpr::tie(aggregate);
-				::fox::serialize::details::do_deserialize<decltype(tie)>(reader, tie);
+				::fox::reflexpr::for_each(aggregate, [&]<class U>(U & member) -> void
+				{
+					::fox::serialize::details::do_deserialize<U>(reader, member);
+				});
 			}
 		};
 #endif
