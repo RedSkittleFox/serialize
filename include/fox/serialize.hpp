@@ -764,7 +764,6 @@ namespace fox::serialize
 				using value_type = std::ranges::range_value_t<T>;
 
 				const std::size_t range_size = std::size(range);
-				writer | range_size;
 
 				// Check if we can memcpy the range
 				constexpr bool memcpy_compatible =
@@ -775,11 +774,13 @@ namespace fox::serialize
 
 				if constexpr (memcpy_compatible)
 				{
-					auto dest = static_cast<std::remove_const_t<T>*>(writer.write_bytes(sizeof(value_type) * range_size));
-					(void)std::memcpy(dest, std::data(range), sizeof(value_type) * range_size);
+					auto dest = static_cast<std::size_t*>(writer.write_bytes(sizeof(value_type) * range_size + sizeof(std::size_t)));
+					*dest = range_size;
+					(void)std::memcpy(dest + 1, std::data(range), sizeof(value_type) * range_size);
 				}
 				else // We iterate over the range
 				{
+					writer | range_size;
 					for (auto&& e : range)
 					{
 						writer | e;

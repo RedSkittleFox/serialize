@@ -1,5 +1,6 @@
 #include "benchmark_common.hpp"
 #include "fox_serialize_benchmark.hpp"
+#include "hand_written_benchmark.hpp"
 
 #include <benchmark/benchmark.h>
 
@@ -67,5 +68,6 @@ void deserialize_benchmark(benchmark::State& state)
 	BENCHMARK(deserialize_benchmark<NAME, std::vector<fox::serialize::benchmark::test_struct>>); 
 
 REGISTER_BENCHMARK_FOR(fox_serialize_benchmark_traits)
+REGISTER_BENCHMARK_FOR(hand_written_benchmark_traits)
 
 BENCHMARK_MAIN();

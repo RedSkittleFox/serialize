@@ -59,7 +59,6 @@ namespace fox::serialize::benchmark
 			return static_cast<animals>(v);
 		}
 	};
-	
 
 	template<class T>
 	struct make_random<std::vector<T>>
